@@ -737,6 +737,91 @@ public class MainActivity extends Activity {
         dialog.show();
     }
 
+
+    // O Android autoriza por arquivo alterações de mídias de outros aplicativos.
+    void requestMove(Item item,String destination,String title){
+        if(item==null||item.cloud||movePending)return;
+        if(!isMovePathAllowed(item,destination)){
+            new AlertDialog.Builder(this).setTitle("Destino incompatível")
+                .setMessage("O Android não permite colocar este tipo de mídia nessa pasta.")
+                .setPositiveButton("OK",null).show();
+            return;
+        }
+        if(destination.equalsIgnoreCase(item.relativePath)){
+            Toast.makeText(this,"A mídia já está neste álbum.",Toast.LENGTH_SHORT).show();return;
+        }
+        movePending=true;
+        prefs.edit().putString("pending_move_key",item.key)
+            .putString("pending_move_uri",item.uri.toString())
+            .putString("pending_move_dest",destination)
+            .putString("pending_move_title",title)
+            .putString("pending_move_source",selectedAlbum).apply();
+        try{
+            PendingIntent permission=MediaStore.createWriteRequest(
+                getContentResolver(),Collections.singletonList(item.uri));
+            startIntentSenderForResult(permission.getIntentSender(),REQ_MOVE,null,0,0,0);
+        }catch(Exception exception){
+            clearPendingMove();
+            new AlertDialog.Builder(this).setTitle("Sem acesso para mover")
+                .setMessage("O Android não autorizou a solicitação. Nenhuma foto foi movida.\n"+
+                    exception.getMessage()).setPositiveButton("OK",null).show();
+        }
+    }
+    void clearPendingMove(){
+        movePending=false;
+        prefs.edit().remove("pending_move_key").remove("pending_move_uri")
+            .remove("pending_move_dest").remove("pending_move_title")
+            .remove("pending_move_source").apply();
+    }
+    void completeMove(){
+        String key=prefs.getString("pending_move_key","");
+        String uriText=prefs.getString("pending_move_uri","");
+        String destination=prefs.getString("pending_move_dest","");
+        String targetName=prefs.getString("pending_move_title","");
+        String origin=prefs.getString("pending_move_source",selectedAlbum);
+        if(key.isEmpty()||uriText.isEmpty()||destination.isEmpty()){
+            clearPendingMove();return;
+        }
+        updateWorker.execute(()->{
+            String error=null;
+            try{
+                ContentValues cv=new ContentValues();
+                cv.put(MediaStore.MediaColumns.RELATIVE_PATH,destination);
+                Uri uri=Uri.parse(uriText);
+                int rows=getContentResolver().update(uri,cv,null,null);
+                if(rows<1)throw new Exception("Nenhuma mídia foi atualizada.");
+                try(Cursor cursor=getContentResolver().query(uri,
+                    new String[]{MediaStore.MediaColumns.RELATIVE_PATH},null,null,null)){
+                    if(cursor!=null&&cursor.moveToFirst()){
+                        String actual=cursor.getString(0);
+                        if(actual!=null&&!actual.equalsIgnoreCase(destination))
+                            throw new Exception("A pasta de destino não foi confirmada.");
+                    }
+                }
+            }catch(Exception exception){error=exception.getMessage();}
+            String outcome=error;
+            ui.post(()->{
+                clearPendingMove();
+                if(isFinishing()||isDestroyed())return;
+                if(outcome!=null){
+                    new AlertDialog.Builder(this).setTitle("Não foi possível mover")
+                        .setMessage("Verifique a pasta atual na Galeria Samsung antes de tentar de novo.\n\n"+
+                            outcome).setPositiveButton("OK",null).show();
+                    scanLocal();
+                    return;
+                }
+                // Após mover, já está organizada e não precisa reaparecer no swipe.
+                kept.add(key);trash.remove(key);
+                prefs.edit().putString("last_media:"+origin,key)
+                    .putString("last_media:"+ALL_ALBUMS,key).apply();
+                persist();history.clear();
+                Toast.makeText(this,"Movida para "+targetName,Toast.LENGTH_SHORT).show();
+                showFeedback("📁","MOVIDA",0xee3459a4);
+                scanLocal();
+            });
+        });
+    }
+
     void decide(boolean discard) {
         if(movePending)return;
         Item it=displayed;if(it==null)return;
