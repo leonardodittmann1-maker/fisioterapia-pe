@@ -59,6 +59,9 @@ public class MainActivity extends Activity {
     LinearLayout page, filterBar;
     FrameLayout card;
     ImageView picture;
+    LinearLayout feedbackBox;
+    TextView feedbackIcon, feedbackMessage;
+    Runnable hideFeedback;
     TextView status, headline, hint, badge, subtitle, trashButton, undoButton, sourceButton, allChip, photoChip, videoChip;
     boolean cloudMode=false, oldest=false, loading=false;
     int filter=0, imageVersion=0;
@@ -149,6 +152,7 @@ public class MainActivity extends Activity {
         picture.setBackgroundColor(0xff111727);
         card.addView(picture,new FrameLayout.LayoutParams(-1,-1));
         picture.setOnTouchListener((v,e)->onSwipe(e));
+        card.setOnTouchListener((v,e)->onSwipe(e));
 
         badge=label("",13,TEXT,true);badge.setGravity(Gravity.CENTER);
         badge.setPadding(dp(14),dp(8),dp(14),dp(8));badge.setBackground(shape(0xcc101827,13));
@@ -167,6 +171,24 @@ public class MainActivity extends Activity {
         headline=label("Selecione as fotos",16,TEXT,true);headline.setSingleLine(true);headline.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
         subtitle=label("Deslize para organizar",12,MUTED,false);
         footerInfo.addView(headline);footerInfo.addView(subtitle);
+
+        // Confirmação breve de cada gesto ou botão, sem bloquear a próxima foto.
+        feedbackBox=new LinearLayout(this);
+        feedbackBox.setOrientation(LinearLayout.VERTICAL);
+        feedbackBox.setGravity(Gravity.CENTER);
+        feedbackBox.setPadding(dp(26),dp(17),dp(26),dp(17));
+        feedbackBox.setVisibility(View.GONE);
+        feedbackBox.setClickable(false);
+        feedbackBox.setFocusable(false);
+        feedbackIcon=label("♥",57,TEXT,true);
+        feedbackIcon.setGravity(Gravity.CENTER);
+        feedbackMessage=label("MANTIDA",14,TEXT,true);
+        feedbackMessage.setGravity(Gravity.CENTER);
+        feedbackBox.addView(feedbackIcon);
+        feedbackBox.addView(feedbackMessage);
+        FrameLayout.LayoutParams feedbackParams=new FrameLayout.LayoutParams(
+            dp(230),-2,Gravity.CENTER);
+        card.addView(feedbackBox,feedbackParams);
 
         hint=label("← DESCARTAR                                     MANTER →",10,MUTED,true);
         hint.setGravity(Gravity.CENTER);page.addView(hint,new LinearLayout.LayoutParams(-1,dp(29)));
@@ -351,13 +373,35 @@ public class MainActivity extends Activity {
         if(history.size()>100)history.removeFirst();
         if(!cloudMode)persist();
         update();
+        showFeedback(discard ? "🗑" : "♥",
+            discard ? "PARA A LIXEIRA" : "MANTIDA",
+            discard ? 0xee883548 : 0xee116b5a);
+    }
+    void showFeedback(String icon, String message, int color) {
+        if(hideFeedback!=null)ui.removeCallbacks(hideFeedback);
+        feedbackBox.animate().cancel();
+        feedbackIcon.setText(icon);
+        feedbackMessage.setText(message);
+        feedbackBox.setBackground(shape(color,24));
+        feedbackBox.setVisibility(View.VISIBLE);
+        feedbackBox.setAlpha(0f);
+        feedbackBox.setScaleX(.78f);
+        feedbackBox.setScaleY(.78f);
+        feedbackBox.animate().alpha(1f).scaleX(1f).scaleY(1f)
+            .setDuration(150).start();
+        hideFeedback=()->feedbackBox.animate().alpha(0f)
+            .scaleX(.9f).scaleY(.9f).setDuration(220)
+            .withEndAction(()->feedbackBox.setVisibility(View.GONE)).start();
+        ui.postDelayed(hideFeedback,600);
     }
     void undo() {
         while(!history.isEmpty()){
             Move move=history.removeLast();
             if(move.discarded)(move.cloud?cloudTrash:trash).remove(move.key);
             else (move.cloud?cloudKept:kept).remove(move.key);
-            persist();update();return;
+            persist();update();
+            showFeedback("↶","DESFEITO",0xee424d91);
+            return;
         }
         Toast.makeText(this,"Nenhuma decisão para desfazer.",Toast.LENGTH_SHORT).show();
     }
@@ -502,6 +546,7 @@ public class MainActivity extends Activity {
             }).show();
     }
     @Override public void onDestroy() {
+        if(hideFeedback!=null)ui.removeCallbacks(hideFeedback);
         imageVersion++;worker.shutdownNow();super.onDestroy();
     }
 }
