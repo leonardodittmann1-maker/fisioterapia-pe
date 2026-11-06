@@ -10,6 +10,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.IntentFilter;
 import android.content.ContentUris;
+import android.content.ContentValues;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
@@ -64,7 +65,7 @@ import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity {
     static final int BG=0xff0b1020, PANEL=0xff182136, TEXT=0xfff3f6ff, MUTED=0xff9caaca, PINK=0xfffc537e, GREEN=0xff29d5a5, BLUE=0xff7a82ff;
-    static final int REQ_PERMISSION=11, REQ_CLOUD=12, REQ_TRASH=13, REQ_INSTALL_SOURCE=14;
+    static final int REQ_PERMISSION=11, REQ_CLOUD=12, REQ_TRASH=13, REQ_INSTALL_SOURCE=14, REQ_MOVE=15;
     static final String VERSION_URL="https://raw.githubusercontent.com/leonardodittmann1-maker/fisioterapia-pe/swipe-clean-gallery-app/updates/version.json";
     static final String APK_URL="https://raw.githubusercontent.com/leonardodittmann1-maker/fisioterapia-pe/swipe-clean-gallery-app/downloads/SwipeClean.apk";
     final Handler ui=new Handler(Looper.getMainLooper());
@@ -85,14 +86,14 @@ public class MainActivity extends Activity {
     TextView status, headline, hint, badge, subtitle, trashButton, undoButton, sourceButton, allChip, photoChip, videoChip, updateButton;
     Uri pendingInstallUri;
     boolean checkingUpdate=false, verifyingDownload=false;
-    boolean cloudMode=false, oldest=false, loading=false;
+    boolean cloudMode=false, oldest=false, loading=false, movePending=false;
     int filter=0, imageVersion=0;
     float startX,startY;
     boolean swiping=false;
     Item displayed;
 
     static class Item {
-        String key, name, mime, albumId, albumName;
+        String key, name, mime, albumId, albumName, relativePath="";
         Uri uri;
         long size, when;
         boolean video, cloud;
@@ -102,14 +103,14 @@ public class MainActivity extends Activity {
             this.albumId=ALL_ALBUMS;this.albumName="Todos";
         }
         Item(String key,Uri uri,String name,String mime,long size,long when,
-             boolean video,boolean cloud,String albumId,String albumName){
+             boolean video,boolean cloud,String albumId,String albumName,String relativePath){
             this(key,uri,name,mime,size,when,video,cloud);
-            this.albumId=albumId;this.albumName=albumName;
+            this.albumId=albumId;this.albumName=albumName;this.relativePath=relativePath==null?"":relativePath;
         }
     }
     static final String ALL_ALBUMS="__all__";
     static class Album {
-        String id,name;
+        String id,name,relativePath="";
         Item cover;
         int total,reviewed;
         Album(String id,String name){this.id=id;this.name=name;}
@@ -174,7 +175,7 @@ public class MainActivity extends Activity {
         updateRow.setGravity(Gravity.CENTER_VERTICAL);
         updateRow.setPadding(0,dp(2),0,dp(2));
         page.addView(updateRow,new LinearLayout.LayoutParams(-1,dp(41)));
-        TextView versionLabel=label("SwipeClean v1.5",11,MUTED,false);
+        TextView versionLabel=label("SwipeClean v1.6",11,MUTED,false);
         updateRow.addView(versionLabel,new LinearLayout.LayoutParams(0,-1,1));
         updateButton=button("↻ Verificar atualização",PANEL,12);
         updateRow.addView(updateButton,new LinearLayout.LayoutParams(-2,dp(37)));
@@ -200,9 +201,9 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams titleP=new LinearLayout.LayoutParams(0,dp(45),1);
         titleP.leftMargin=dp(5);titleP.rightMargin=dp(5);
         albumBrowseRow.addView(albumBrowseTitle,titleP);
-        albumBrowseSwitch=button("Trocar ▾",BLUE,13);
+        albumBrowseSwitch=button("📁 Mover",BLUE,13);
         albumBrowseRow.addView(albumBrowseSwitch,new LinearLayout.LayoutParams(-2,dp(45)));
-        albumBrowseSwitch.setOnClickListener(v->quickAlbumPicker());
+        albumBrowseSwitch.setOnClickListener(v->chooseMoveDestination());
 
         sourceRow=new LinearLayout(this);
         sourceRow.setPadding(0,dp(7),0,dp(7));
@@ -283,20 +284,25 @@ public class MainActivity extends Activity {
 
         LinearLayout actions=new LinearLayout(this);actions.setGravity(Gravity.CENTER);
         swipeSection.addView(actions,new LinearLayout.LayoutParams(-1,dp(65)));
-        TextView no=button("✕  Descartar",0xff793148,15);
-        TextView yes=button("♥  Manter",0xff125d53,15);
-        TextView undo=button("↶",PANEL,24);undoButton=undo;
+        TextView no=button("✕ Descartar",0xff793148,13);
+        TextView yes=button("♥ Manter",0xff125d53,13);
+        TextView move=button("📁 Mover",0xff354b9e,13);
         actions.addView(no,new LinearLayout.LayoutParams(0,dp(62),1));
-        LinearLayout.LayoutParams mid=new LinearLayout.LayoutParams(dp(49),dp(62));
-        mid.setMargins(dp(6),0,dp(6),0);
-        actions.addView(undo,mid);actions.addView(yes,new LinearLayout.LayoutParams(0,dp(62),1));
-        no.setOnClickListener(v->decide(true));yes.setOnClickListener(v->decide(false));undo.setOnClickListener(v->undo());
+        LinearLayout.LayoutParams gap1=new LinearLayout.LayoutParams(0,dp(62),1);gap1.leftMargin=dp(6);
+        actions.addView(yes,gap1);
+        LinearLayout.LayoutParams gap2=new LinearLayout.LayoutParams(0,dp(62),1);gap2.leftMargin=dp(6);
+        actions.addView(move,gap2);
+        no.setOnClickListener(v->decide(true));yes.setOnClickListener(v->decide(false));
+        move.setOnClickListener(v->chooseMoveDestination());
         LinearLayout bottom=new LinearLayout(this);bottom.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams bottomParams=new LinearLayout.LayoutParams(-1,dp(53));bottomParams.topMargin=dp(10);
         swipeSection.addView(bottom,bottomParams);
         trashButton=button("🗑  Revisar descartes",PINK,13);
         bottom.addView(trashButton,new LinearLayout.LayoutParams(0,-1,1));
         trashButton.setOnClickListener(v->review());
+        TextView undo=button("↶",PANEL,23);undoButton=undo;
+        LinearLayout.LayoutParams up=new LinearLayout.LayoutParams(dp(48),-1);up.leftMargin=dp(7);
+        bottom.addView(undo,up);undo.setOnClickListener(v->undo());
         TextView reset=button("⟳",PANEL,23);
         LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(dp(54),-1);rp.leftMargin=dp(8);
         bottom.addView(reset,rp);
@@ -433,7 +439,7 @@ public class MainActivity extends Activity {
                           : MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id);
                     found.add(new Item("local:"+id,itemUri,
                         name==null?"Sem nome":name,mime==null?"image/*":mime,size,date,
-                        type==MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO,false,albumKey,bucketName));
+                        type==MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO,false,albumKey,bucketName,relativePath));
                 }
             } catch(Exception e) { error=e.getMessage(); }
             String finalError=error;
@@ -453,7 +459,7 @@ public class MainActivity extends Activity {
         grouped.put(ALL_ALBUMS,all);
         for(Item item:localItems) {
             Album a=grouped.get(item.albumId);
-            if(a==null){a=new Album(item.albumId,item.albumName);grouped.put(item.albumId,a);}
+            if(a==null){a=new Album(item.albumId,item.albumName);a.relativePath=item.relativePath;grouped.put(item.albumId,a);}
             a.total++;all.total++;
             if(a.cover==null || item.when>a.cover.when)a.cover=item;
             if(all.cover==null || item.when>all.cover.when)all.cover=item;
@@ -467,7 +473,7 @@ public class MainActivity extends Activity {
             return d!=0?(int)d:a.name.compareToIgnoreCase(b.name);
         });
         albums.addAll(others);
-        if(!ALL_ALBUMS.equals(selectedAlbum) && !grouped.containsKey(selectedAlbum)){
+        if(!browsingAlbum && !ALL_ALBUMS.equals(selectedAlbum) && !grouped.containsKey(selectedAlbum)){
             selectedAlbum=ALL_ALBUMS;
             prefs.edit().putString("selected_album",selectedAlbum).apply();
         }
@@ -476,7 +482,7 @@ public class MainActivity extends Activity {
     String currentAlbumName(){
         if(cloudMode)return "Seleção do Google Fotos";
         for(Album a:albums)if(a.id.equals(selectedAlbum))return a.name;
-        return "Todos os arquivos";
+        return prefs.getString("selected_album_name","Todos os arquivos");
     }
     void selectAlbum(String id){
         // Entrar imediatamente no visualizador do álbum, sem uma etapa intermediária.
@@ -484,7 +490,9 @@ public class MainActivity extends Activity {
         cloudMode=false;
         browsingAlbum=true;
         filter=0; // Não deixar o filtro anterior de vídeos esconder as fotos do álbum.
-        prefs.edit().putString("selected_album",id)
+        String label="Todos os arquivos";
+        for(Album a:albums)if(a.id.equals(id)){label=a.name;break;}
+        prefs.edit().putString("selected_album",id).putString("selected_album_name",label)
             .putBoolean("browsing_album",true).putInt("filter",0).apply();
         history.clear();
         switchTab(false);
@@ -506,7 +514,7 @@ public class MainActivity extends Activity {
             Album a=albums.get(i);
             titles[i]=a.name+"  ("+a.total+")";
         }
-        new AlertDialog.Builder(this).setTitle("Trocar álbum")
+        new AlertDialog.Builder(this).setTitle("Abrir álbum")
             .setItems(titles,(dialog,index)->selectAlbum(albums.get(index).id))
             .setNegativeButton("Cancelar",null).show();
     }
@@ -582,6 +590,11 @@ public class MainActivity extends Activity {
     }
     @Override protected void onActivityResult(int req,int result,Intent data) {
         super.onActivityResult(req,result,data);
+        if(req==REQ_MOVE){
+            if(result==RESULT_OK)completeMove();
+            else {clearPendingMove();Toast.makeText(this,"Movimentação cancelada.",Toast.LENGTH_SHORT).show();}
+            return;
+        }
         if(req==REQ_INSTALL_SOURCE) {
             if(pendingInstallUri!=null && getPackageManager().canRequestPackageInstalls())
                 openSystemInstaller(pendingInstallUri);
@@ -653,6 +666,7 @@ public class MainActivity extends Activity {
             .putStringSet("trash",new HashSet<>(trash)).apply();
     }
     void decide(boolean discard) {
+        if(movePending)return;
         Item it=displayed;if(it==null)return;
         if(discard)trashSet().add(it.key);else keepSet().add(it.key);
         history.addLast(new Move(it.key,discard,cloudMode));
