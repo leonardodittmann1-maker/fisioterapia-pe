@@ -1,6 +1,6 @@
 {
-  "versionCode": 7,
-  "versionName": "1.6.0",
-  "notes": "Mover arquivos reais entre álbuns da Galeria Samsung ou criar um novo, com confirmação do Android.",
-  "sha256": "05d9096390f842e8d04f566005df11469c124fd8d13c71cb61ea4a3934d7228f"
+  "versionCode": 8,
+  "versionName": "1.7.0",
+  "notes": "Botão Desfazer retorna imediatamente à última foto, e confirmações ficaram pequenas e discretas.",
+  "sha256": "ae9b624656f6285b57fd4e7523d38af9dac9a80890ac5fbcc3ceb8ccf4d15133"
 }
