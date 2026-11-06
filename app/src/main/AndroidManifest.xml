@@ -1,19 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
-    <application android:label="Meu Pé • Fisio" android:theme="@android:style/Theme.Material.Light.NoActionBar" android:allowBackup="true" android:supportsRtl="true">
-        <activity android:name=".MainActivity" android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
-        </activity>
-        <receiver android:name=".ReminderReceiver" android:exported="false"/>
-        <receiver android:name=".BootReceiver" android:exported="false">
-            <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED"/>
-            </intent-filter>
-        </receiver>
-    </application>
+ <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"/>
+ <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
+ <uses-permission android:name="android.permission.READ_MEDIA_VIDEO"/>
+ <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED"/>
+ <application android:label="SwipeClean" android:theme="@android:style/Theme.Material.Light.NoActionBar" android:allowBackup="false" android:supportsRtl="true" android:usesCleartextTraffic="false">
+  <activity android:name=".MainActivity" android:exported="true" android:screenOrientation="portrait">
+   <intent-filter>
+    <action android:name="android.intent.action.MAIN"/>
+    <category android:name="android.intent.category.LAUNCHER"/>
+   </intent-filter>
+  </activity>
+ </application>
 </manifest>

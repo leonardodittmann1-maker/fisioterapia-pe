@@ -1,15 +1,17 @@
-name: Gerar APK Android
+name: Gerar APK SwipeClean
 on:
   push:
-    branches: [ main ]
+    branches: [ swipe-clean-gallery-app ]
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
 jobs:
-  build:
+  apk:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: true
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -19,9 +21,17 @@ jobs:
           gradle-version: '8.9'
       - name: Compilar APK
         run: gradle :app:assembleDebug --no-daemon
-      - name: Disponibilizar APK
-        uses: actions/upload-artifact@v4
+      - name: Publicar APK para instalação direta
+        run: |
+          mkdir -p downloads
+          cp app/build/outputs/apk/debug/app-debug.apk downloads/SwipeClean.apk
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add downloads/SwipeClean.apk
+          git commit -m "Disponibilizar APK SwipeClean" || true
+          git push origin HEAD:swipe-clean-gallery-app
+      - uses: actions/upload-artifact@v4
         with:
-          name: fisioterapia-pe-v1-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
-          retention-days: 30
+          name: SwipeClean-APK
+          path: downloads/SwipeClean.apk
+          retention-days: 90
