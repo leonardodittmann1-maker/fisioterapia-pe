@@ -69,6 +69,7 @@ public class MainActivity extends Activity {
     static final String APK_URL="https://raw.githubusercontent.com/leonardodittmann1-maker/fisioterapia-pe/swipe-clean-gallery-app/downloads/SwipeClean.apk";
     final Handler ui=new Handler(Looper.getMainLooper());
     final ExecutorService worker=Executors.newSingleThreadExecutor();
+    final ExecutorService coverWorker=Executors.newFixedThreadPool(2);
     // Atualizações não esperam as miniaturas/álbuns serem carregados.
     final ExecutorService updateWorker=Executors.newSingleThreadExecutor();
     final ArrayList<Item> localItems=new ArrayList<>(), cloudItems=new ArrayList<>();
@@ -115,9 +116,9 @@ public class MainActivity extends Activity {
     }
     final ArrayList<Album> albums=new ArrayList<>();
     String selectedAlbum=ALL_ALBUMS;
-    boolean albumTab=false;
-    LinearLayout swipeSection,albumSection,albumRows,navBar;
-    TextView albumSelector,navSwipe,navAlbums;
+    boolean albumTab=false,browsingAlbum=false;
+    LinearLayout swipeSection,albumSection,albumRows,navBar,sourceRow,albumBrowseRow;
+    TextView albumSelector,navSwipe,navAlbums,albumBrowseTitle,albumBrowseSwitch,albumBrowseBack;
     EditText albumSearch;
     static class Move {
         String key;
@@ -133,6 +134,7 @@ public class MainActivity extends Activity {
         kept=new HashSet<>(prefs.getStringSet("keep",Collections.emptySet()));
         trash=new HashSet<>(prefs.getStringSet("trash",Collections.emptySet()));
         selectedAlbum=prefs.getString("selected_album",ALL_ALBUMS);
+        browsingAlbum=prefs.getBoolean("browsing_album",false);
         oldest=prefs.getBoolean("oldest",false);
         filter=prefs.getInt("filter",0);
         buildUi();
@@ -172,7 +174,7 @@ public class MainActivity extends Activity {
         updateRow.setGravity(Gravity.CENTER_VERTICAL);
         updateRow.setPadding(0,dp(2),0,dp(2));
         page.addView(updateRow,new LinearLayout.LayoutParams(-1,dp(41)));
-        TextView versionLabel=label("SwipeClean v1.2",11,MUTED,false);
+        TextView versionLabel=label("SwipeClean v1.5",11,MUTED,false);
         updateRow.addView(versionLabel,new LinearLayout.LayoutParams(0,-1,1));
         updateButton=button("↻ Verificar atualização",PANEL,12);
         updateRow.addView(updateButton,new LinearLayout.LayoutParams(-2,dp(37)));
@@ -181,10 +183,33 @@ public class MainActivity extends Activity {
         swipeSection=new LinearLayout(this);
         swipeSection.setOrientation(LinearLayout.VERTICAL);
         page.addView(swipeSection,new LinearLayout.LayoutParams(-1,0,1));
-        LinearLayout sources=new LinearLayout(this); sources.setPadding(0,dp(10),0,dp(10));sources.setGravity(Gravity.CENTER_VERTICAL);
-        swipeSection.addView(sources);
+
+        // Barra exclusiva da visualização de álbum, com ações sempre visíveis.
+        albumBrowseRow=new LinearLayout(this);
+        albumBrowseRow.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout.LayoutParams browseParams=new LinearLayout.LayoutParams(-1,dp(50));
+        browseParams.topMargin=dp(3);
+        swipeSection.addView(albumBrowseRow,browseParams);
+        albumBrowseBack=button("‹ Álbuns",PANEL,13);
+        albumBrowseRow.addView(albumBrowseBack,new LinearLayout.LayoutParams(-2,dp(45)));
+        albumBrowseBack.setOnClickListener(v->switchTab(true));
+        albumBrowseTitle=label("Câmera",15,TEXT,true);
+        albumBrowseTitle.setGravity(Gravity.CENTER);
+        albumBrowseTitle.setSingleLine(true);
+        albumBrowseTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams titleP=new LinearLayout.LayoutParams(0,dp(45),1);
+        titleP.leftMargin=dp(5);titleP.rightMargin=dp(5);
+        albumBrowseRow.addView(albumBrowseTitle,titleP);
+        albumBrowseSwitch=button("Trocar ▾",BLUE,13);
+        albumBrowseRow.addView(albumBrowseSwitch,new LinearLayout.LayoutParams(-2,dp(45)));
+        albumBrowseSwitch.setOnClickListener(v->quickAlbumPicker());
+
+        sourceRow=new LinearLayout(this);
+        sourceRow.setPadding(0,dp(7),0,dp(7));
+        sourceRow.setGravity(Gravity.CENTER_VERTICAL);
+        swipeSection.addView(sourceRow);
         sourceButton=button("▣  Galeria Samsung / celular",BLUE,13);
-        sources.addView(sourceButton,new LinearLayout.LayoutParams(0,dp(44),1));
+        sourceRow.addView(sourceButton,new LinearLayout.LayoutParams(0,dp(44),1));
         sourceButton.setOnClickListener(v->{
             if(cloudMode){ cloudMode=false;history.clear();update(); }
             else {new AlertDialog.Builder(this).setTitle("Galeria do celular")
@@ -193,7 +218,7 @@ public class MainActivity extends Activity {
         });
         TextView cloudBtn=button("☁ Google Fotos",PANEL,12);
         LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(0,dp(44),.78f);cp.leftMargin=dp(8);
-        sources.addView(cloudBtn,cp);
+        sourceRow.addView(cloudBtn,cp);
         cloudBtn.setOnClickListener(v->chooseCloud());
         albumSelector=button("▾  Todos os álbuns",PANEL,13);
         LinearLayout.LayoutParams selectorParams=new LinearLayout.LayoutParams(-1,dp(39));
@@ -258,10 +283,12 @@ public class MainActivity extends Activity {
 
         LinearLayout actions=new LinearLayout(this);actions.setGravity(Gravity.CENTER);
         swipeSection.addView(actions,new LinearLayout.LayoutParams(-1,dp(65)));
-        TextView no=button("✕",0xff793148,29);TextView yes=button("♥",0xff125d53,28);
-        TextView undo=button("↶",PANEL,27);undoButton=undo;
+        TextView no=button("✕  Descartar",0xff793148,15);
+        TextView yes=button("♥  Manter",0xff125d53,15);
+        TextView undo=button("↶",PANEL,24);undoButton=undo;
         actions.addView(no,new LinearLayout.LayoutParams(0,dp(62),1));
-        LinearLayout.LayoutParams mid=new LinearLayout.LayoutParams(dp(66),dp(62));mid.setMargins(dp(10),0,dp(10),0);
+        LinearLayout.LayoutParams mid=new LinearLayout.LayoutParams(dp(49),dp(62));
+        mid.setMargins(dp(6),0,dp(6),0);
         actions.addView(undo,mid);actions.addView(yes,new LinearLayout.LayoutParams(0,dp(62),1));
         no.setOnClickListener(v->decide(true));yes.setOnClickListener(v->decide(false));undo.setOnClickListener(v->undo());
         LinearLayout bottom=new LinearLayout(this);bottom.setGravity(Gravity.CENTER);
@@ -281,7 +308,7 @@ public class MainActivity extends Activity {
         page.addView(albumSection,new LinearLayout.LayoutParams(-1,0,1));
         TextView albumTitle=label("Álbuns da galeria",23,TEXT,true);
         albumSection.addView(albumTitle,new LinearLayout.LayoutParams(-1,dp(45)));
-        TextView albumHelp=label("Escolha uma pasta para decidir o que manter.",12,MUTED,false);
+        TextView albumHelp=label("Toque em um álbum para abrir as fotos e decidir uma por uma.",12,MUTED,false);
         albumSection.addView(albumHelp,new LinearLayout.LayoutParams(-1,dp(33)));
         albumSearch=new EditText(this);
         albumSearch.setSingleLine(true);
@@ -317,7 +344,17 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams albumsNavParams=new LinearLayout.LayoutParams(0,-1,1);
         albumsNavParams.leftMargin=dp(10);
         navBar.addView(navAlbums,albumsNavParams);
-        navSwipe.setOnClickListener(v->switchTab(false));
+        navSwipe.setOnClickListener(v->{
+            browsingAlbum=false;
+            selectedAlbum=ALL_ALBUMS;
+            cloudMode=false;
+            filter=0;
+            prefs.edit().putBoolean("browsing_album",false)
+                .putString("selected_album",ALL_ALBUMS)
+                .putInt("filter",0).apply();
+            history.clear();
+            switchTab(false);
+        });
         navAlbums.setOnClickListener(v->switchTab(true));
         switchTab(false);
     }
@@ -442,12 +479,15 @@ public class MainActivity extends Activity {
         return "Todos os arquivos";
     }
     void selectAlbum(String id){
+        // Entrar imediatamente no visualizador do álbum, sem uma etapa intermediária.
         selectedAlbum=id;
         cloudMode=false;
-        prefs.edit().putString("selected_album",id).apply();
+        browsingAlbum=true;
+        filter=0; // Não deixar o filtro anterior de vídeos esconder as fotos do álbum.
+        prefs.edit().putString("selected_album",id)
+            .putBoolean("browsing_album",true).putInt("filter",0).apply();
         history.clear();
         switchTab(false);
-        update();
     }
     void switchTab(boolean albumsActive){
         albumTab=albumsActive;
@@ -510,7 +550,7 @@ public class MainActivity extends Activity {
         }
     }
     void loadAlbumCover(Item item,ImageView view){
-        worker.execute(()->{
+        coverWorker.execute(()->{
             Bitmap bmp=null;
             try{
                 bmp=getContentResolver().loadThumbnail(item.uri,new Size(180,180),null);
@@ -665,6 +705,11 @@ public class MainActivity extends Activity {
         videoChip.setBackground(shape(filter==2?BLUE:PANEL,16));
         sourceButton.setText(cloudMode?"☁  Seleção do Google Fotos":"▣  Galeria Samsung / celular");
         albumSelector.setText("▾  "+currentAlbumName());
+        boolean albumDetails=browsingAlbum&&!cloudMode;
+        albumBrowseRow.setVisibility(albumDetails?View.VISIBLE:View.GONE);
+        sourceRow.setVisibility(albumDetails?View.GONE:View.VISIBLE);
+        albumSelector.setVisibility(albumDetails?View.GONE:View.VISIBLE);
+        albumBrowseTitle.setText(currentAlbumName());
         ArrayList<Item> pool=visiblePool();
         int reviewed=0;
         for(Item it:pool)if(keepSet().contains(it.key)||trashSet().contains(it.key))reviewed++;
@@ -1007,6 +1052,6 @@ public class MainActivity extends Activity {
 
     @Override public void onDestroy() {
         if(hideFeedback!=null)ui.removeCallbacks(hideFeedback);
-        imageVersion++;worker.shutdownNow();updateWorker.shutdownNow();super.onDestroy();
+        imageVersion++;worker.shutdownNow();coverWorker.shutdownNow();updateWorker.shutdownNow();super.onDestroy();
     }
 }
