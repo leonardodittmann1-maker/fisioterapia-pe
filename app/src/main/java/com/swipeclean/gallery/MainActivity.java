@@ -69,6 +69,8 @@ public class MainActivity extends Activity {
     static final String APK_URL="https://raw.githubusercontent.com/leonardodittmann1-maker/fisioterapia-pe/swipe-clean-gallery-app/downloads/SwipeClean.apk";
     final Handler ui=new Handler(Looper.getMainLooper());
     final ExecutorService worker=Executors.newSingleThreadExecutor();
+    // Atualizações não esperam as miniaturas/álbuns serem carregados.
+    final ExecutorService updateWorker=Executors.newSingleThreadExecutor();
     final ArrayList<Item> localItems=new ArrayList<>(), cloudItems=new ArrayList<>();
     final ArrayDeque<Move> history=new ArrayDeque<>();
     Set<String> kept=new HashSet<>(), trash=new HashSet<>(), cloudKept=new HashSet<>(), cloudTrash=new HashSet<>();
@@ -807,7 +809,7 @@ public class MainActivity extends Activity {
         }
         checkingUpdate=true;
         updateButton.setText("↻ Verificando...");
-        worker.execute(()->{
+        updateWorker.execute(()->{
             String error=null;
             int newestCode=0;
             String newestName="",notes="",sha="";
@@ -886,7 +888,7 @@ public class MainActivity extends Activity {
         if(verifyingDownload)return;
         verifyingDownload=true;
         updateButton.setText("↓ Baixando...");
-        worker.execute(()->{
+        updateWorker.execute(()->{
             String error=null;
             java.io.File partial=null,finalFile=null;
             HttpURLConnection connection=null;
@@ -1005,6 +1007,6 @@ public class MainActivity extends Activity {
 
     @Override public void onDestroy() {
         if(hideFeedback!=null)ui.removeCallbacks(hideFeedback);
-        imageVersion++;worker.shutdownNow();super.onDestroy();
+        imageVersion++;worker.shutdownNow();updateWorker.shutdownNow();super.onDestroy();
     }
 }
