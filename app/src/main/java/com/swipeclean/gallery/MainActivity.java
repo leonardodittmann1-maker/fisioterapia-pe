@@ -83,6 +83,7 @@ public class MainActivity extends Activity {
     LinearLayout feedbackBox;
     TextView feedbackIcon, feedbackMessage;
     Runnable hideFeedback;
+    String undoFocusKey="";
     TextView status, headline, hint, badge, subtitle, trashButton, undoButton, sourceButton, allChip, photoChip, videoChip, updateButton;
     Uri pendingInstallUri;
     boolean checkingUpdate=false, verifyingDownload=false;
@@ -134,6 +135,7 @@ public class MainActivity extends Activity {
         prefs=getSharedPreferences("swipe_clean_state",MODE_PRIVATE);
         kept=new HashSet<>(prefs.getStringSet("keep",Collections.emptySet()));
         trash=new HashSet<>(prefs.getStringSet("trash",Collections.emptySet()));
+        undoFocusKey=prefs.getString("undo_focus_key","");
         selectedAlbum=prefs.getString("selected_album",ALL_ALBUMS);
         browsingAlbum=prefs.getBoolean("browsing_album",false);
         oldest=prefs.getBoolean("oldest",false);
@@ -263,20 +265,23 @@ public class MainActivity extends Activity {
 
         // Confirmação breve de cada gesto ou botão, sem bloquear a próxima foto.
         feedbackBox=new LinearLayout(this);
-        feedbackBox.setOrientation(LinearLayout.VERTICAL);
+        feedbackBox.setOrientation(LinearLayout.HORIZONTAL);
         feedbackBox.setGravity(Gravity.CENTER);
-        feedbackBox.setPadding(dp(26),dp(17),dp(26),dp(17));
+        feedbackBox.setPadding(dp(12),dp(7),dp(12),dp(7));
         feedbackBox.setVisibility(View.GONE);
         feedbackBox.setClickable(false);
         feedbackBox.setFocusable(false);
-        feedbackIcon=label("♥",57,TEXT,true);
+        feedbackIcon=label("♥",21,GREEN,true);
         feedbackIcon.setGravity(Gravity.CENTER);
-        feedbackMessage=label("MANTIDA",14,TEXT,true);
+        feedbackMessage=label("Mantida",11,TEXT,true);
         feedbackMessage.setGravity(Gravity.CENTER);
-        feedbackBox.addView(feedbackIcon);
-        feedbackBox.addView(feedbackMessage);
+        LinearLayout.LayoutParams feedbackTextParams=new LinearLayout.LayoutParams(-2,-2);
+        feedbackTextParams.leftMargin=dp(7);
+        feedbackBox.addView(feedbackIcon,new LinearLayout.LayoutParams(-2,-2));
+        feedbackBox.addView(feedbackMessage,feedbackTextParams);
         FrameLayout.LayoutParams feedbackParams=new FrameLayout.LayoutParams(
-            dp(230),-2,Gravity.CENTER);
+            -2,-2,Gravity.TOP|Gravity.CENTER_HORIZONTAL);
+        feedbackParams.topMargin=dp(64);
         card.addView(feedbackBox,feedbackParams);
 
         hint=label("← DESCARTAR                                     MANTER →",10,MUTED,true);
@@ -495,6 +500,7 @@ public class MainActivity extends Activity {
         prefs.edit().putString("selected_album",id).putString("selected_album_name",label)
             .putBoolean("browsing_album",true).putInt("filter",0).apply();
         history.clear();
+        clearUndoFocus();
         switchTab(false);
     }
     void switchTab(boolean albumsActive){
@@ -648,6 +654,13 @@ public class MainActivity extends Activity {
     Item nextItem() {
         ArrayList<Item> pool=visiblePool();
         if(pool.isEmpty())return null;
+        if(!undoFocusKey.isEmpty()){
+            for(Item item:pool){
+                if(item.key.equals(undoFocusKey)
+                    &&!keepSet().contains(item.key)
+                    &&!trashSet().contains(item.key))return item;
+            }
+        }
         String anchor=cloudMode?"":prefs.getString("last_media:"+selectedAlbum,"");
         int start=0;
         if(!anchor.isEmpty()){
@@ -814,9 +827,9 @@ public class MainActivity extends Activity {
                 kept.add(key);trash.remove(key);
                 prefs.edit().putString("last_media:"+origin,key)
                     .putString("last_media:"+ALL_ALBUMS,key).apply();
-                persist();history.clear();
+                persist();history.clear();clearUndoFocus();
                 Toast.makeText(this,"Movida para "+targetName,Toast.LENGTH_SHORT).show();
-                showFeedback("📁","MOVIDA",0xee3459a4);
+                showFeedback("📁","Movida",BLUE);
                 scanLocal();
             });
         });
@@ -825,6 +838,7 @@ public class MainActivity extends Activity {
     void decide(boolean discard) {
         if(movePending)return;
         Item it=displayed;if(it==null)return;
+        clearUndoFocus();
         if(discard)trashSet().add(it.key);else keepSet().add(it.key);
         history.addLast(new Move(it.key,discard,cloudMode));
         if(history.size()>100)history.removeFirst();
@@ -834,36 +848,45 @@ public class MainActivity extends Activity {
             persist();buildAlbums();
         }
         update();
-        showFeedback(discard ? "🗑" : "♥",
-            discard ? (it.cloud ? "REVISAR NA NUVEM" : "MARCADA PARA DESCARTE") : "MANTIDA",
-            discard ? 0xee883548 : 0xee116b5a);
+        showFeedback(discard ? "✕" : "♥",
+            discard ? (it.cloud ? "Revisar na nuvem" : "Marcada para descarte") : "Mantida",
+            discard ? PINK : GREEN);
         card.performHapticFeedback(android.view.HapticFeedbackConstants.CONTEXT_CLICK);
     }
-    void showFeedback(String icon, String message, int color) {
+    // Confirmação discreta no topo da foto: curta, sem popup modal e sem cobrir a mídia.
+    void showFeedback(String icon,String message,int color){
         if(hideFeedback!=null)ui.removeCallbacks(hideFeedback);
         feedbackBox.animate().cancel();
         feedbackIcon.setText(icon);
+        feedbackIcon.setTextColor(color);
         feedbackMessage.setText(message);
-        feedbackBox.setBackground(shape(color,24));
+        feedbackBox.setBackground(shape(0xee162033,12));
         feedbackBox.setVisibility(View.VISIBLE);
         feedbackBox.setAlpha(0f);
-        feedbackBox.setScaleX(.78f);
-        feedbackBox.setScaleY(.78f);
-        feedbackBox.animate().alpha(1f).scaleX(1f).scaleY(1f)
-            .setDuration(150).start();
-        hideFeedback=()->feedbackBox.animate().alpha(0f)
-            .scaleX(.9f).scaleY(.9f).setDuration(220)
+        feedbackBox.animate().alpha(1f).setDuration(90).start();
+        hideFeedback=()->feedbackBox.animate().alpha(0f).setDuration(140)
             .withEndAction(()->feedbackBox.setVisibility(View.GONE)).start();
-        ui.postDelayed(hideFeedback,600);
+        ui.postDelayed(hideFeedback,440);
     }
-    void undo() {
+    void clearUndoFocus(){
+        undoFocusKey="";
+        prefs.edit().remove("undo_focus_key").apply();
+    }
+    void undo(){
+        if(movePending)return;
         while(!history.isEmpty()){
             Move move=history.removeLast();
+            if(move.cloud!=cloudMode)continue;
             if(move.discarded)(move.cloud?cloudTrash:trash).remove(move.key);
             else (move.cloud?cloudKept:kept).remove(move.key);
-            if(!move.cloud)buildAlbums();
-            persist();update();
-            showFeedback("↶","DESFEITO",0xee424d91);
+            // Exibir a foto desfeita imediatamente, ignorando a âncora de ordenação.
+            undoFocusKey=move.key;
+            if(!move.cloud){
+                prefs.edit().putString("undo_focus_key",move.key).apply();
+                persist();buildAlbums();
+            }
+            update();
+            showFeedback("↶","Desfeito",BLUE);
             return;
         }
         Toast.makeText(this,"Nenhuma decisão para desfazer.",Toast.LENGTH_SHORT).show();
@@ -1011,7 +1034,7 @@ public class MainActivity extends Activity {
             .setPositiveButton("Recomeçar",(d,w)->{
                 if(cloudMode){cloudKept.clear();cloudTrash.clear();}
                 else {kept.clear();trash.clear();persist();}
-                history.clear();buildAlbums();update();
+                history.clear();clearUndoFocus();buildAlbums();update();
             }).show();
     }
 
