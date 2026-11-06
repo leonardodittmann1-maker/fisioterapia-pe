@@ -1,6 +1,6 @@
 {
-  "versionCode": 6,
-  "versionName": "1.5.0",
-  "notes": "Ao escolher um álbum, abrir fotos diretamente com botões Descartar, Manter e Trocar álbum. Retomada por pasta preservada.",
-  "sha256": "0aaa3dc8ec8579a61051ab88ca867bd5a9a540e73467aac90eb036e6098daf7e"
+  "versionCode": 7,
+  "versionName": "1.6.0",
+  "notes": "Mover arquivos reais entre álbuns da Galeria Samsung ou criar um novo, com confirmação do Android.",
+  "sha256": "05d9096390f842e8d04f566005df11469c124fd8d13c71cb61ea4a3934d7228f"
 }
