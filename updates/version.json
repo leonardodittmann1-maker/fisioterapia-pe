@@ -1,6 +1,6 @@
 {
-  "versionCode": 5,
-  "versionName": "1.4.0",
-  "notes": "Atualizador corrigido: verificação rápida, download seguro, instalador Android e assinatura estabilizada para novas versões.",
-  "sha256": "50187bfdf923d2a2ad6dbdd1969a70660b0f01af94ba9138d53924078737564d"
+  "versionCode": 6,
+  "versionName": "1.5.0",
+  "notes": "Ao escolher um álbum, abrir fotos diretamente com botões Descartar, Manter e Trocar álbum. Retomada por pasta preservada.",
+  "sha256": "0aaa3dc8ec8579a61051ab88ca867bd5a9a540e73467aac90eb036e6098daf7e"
 }
