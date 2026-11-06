@@ -665,6 +665,78 @@ public class MainActivity extends Activity {
         prefs.edit().putStringSet("keep",new HashSet<>(kept))
             .putStringSet("trash",new HashSet<>(trash)).apply();
     }
+
+    // Mover altera a pasta física da mídia, diferente de trocar a pasta exibida.
+    boolean isMovePathAllowed(Item item,String path){
+        if(path==null||path.isEmpty())return false;
+        String p=path.replace('\\','/').toLowerCase(Locale.ROOT);
+        if(!p.endsWith("/")||p.contains("../")||p.startsWith("/"))return false;
+        String root=p.split("/")[0];
+        if(item.video)return root.equals("dcim")||root.equals("movies")||root.equals("pictures");
+        return root.equals("dcim")||root.equals("pictures");
+    }
+    void chooseMoveDestination(){
+        Item item=displayed;
+        if(item==null){
+            Toast.makeText(this,"Não há mídia selecionada.",Toast.LENGTH_SHORT).show();return;
+        }
+        if(item.cloud){
+            new AlertDialog.Builder(this).setTitle("Mídia somente na nuvem")
+                .setMessage("Mover entre pastas funciona para arquivos locais. Para fotos só na nuvem, organize pelo Google Fotos.")
+                .setPositiveButton("OK",null).show();
+            return;
+        }
+        if(movePending)return;
+        ArrayList<Album> targets=new ArrayList<>();
+        for(Album a:albums)
+            if(!ALL_ALBUMS.equals(a.id)&&!a.id.equals(item.albumId)
+                &&isMovePathAllowed(item,a.relativePath))targets.add(a);
+        targets.sort((a,b)->a.name.compareToIgnoreCase(b.name));
+        String[] choices=new String[targets.size()+1];
+        for(int i=0;i<targets.size();i++)
+            choices[i]=targets.get(i).name+" ("+targets.get(i).total+")";
+        choices[targets.size()]="+ Criar novo álbum";
+        new AlertDialog.Builder(this)
+            .setTitle("Mover "+item.name+" para...")
+            .setItems(choices,(d,index)->{
+                if(index==targets.size())createMoveAlbum(item);
+                else{
+                    Album destination=targets.get(index);
+                    new AlertDialog.Builder(this).setTitle("Mover para "+destination.name+"?")
+                        .setMessage("Esta foto sairá da pasta atual e irá para "+destination.name+". Não será duplicada.")
+                        .setNegativeButton("Cancelar",null)
+                        .setPositiveButton("Mover",(dialog,which)->
+                            requestMove(item,destination.relativePath,destination.name))
+                        .show();
+                }
+            })
+            .setNegativeButton("Cancelar",null).show();
+    }
+    void createMoveAlbum(Item item){
+        EditText field=new EditText(this);
+        field.setSingleLine(true);
+        field.setHint("Nome do álbum");
+        LinearLayout form=new LinearLayout(this);
+        form.setPadding(dp(20),0,dp(20),0);
+        form.addView(field,new LinearLayout.LayoutParams(-1,dp(60)));
+        AlertDialog dialog=new AlertDialog.Builder(this)
+            .setTitle("Criar álbum e mover")
+            .setView(form)
+            .setNegativeButton("Cancelar",null)
+            .setPositiveButton("Criar",null).create();
+        dialog.setOnShowListener(v->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(button->{
+            String name=field.getText().toString().trim();
+            if(name.isEmpty()||name.length()>60||name.equals(".")||name.equals("..")
+                ||name.contains("/")||name.contains("\\")||name.contains(":")){
+                field.setError("Escolha um nome de 1 a 60 caracteres sem barras ou :");
+                return;
+            }
+            dialog.dismiss();
+            requestMove(item,(item.video?"Movies/":"Pictures/")+name+"/",name);
+        }));
+        dialog.show();
+    }
+
     void decide(boolean discard) {
         if(movePending)return;
         Item it=displayed;if(it==null)return;
