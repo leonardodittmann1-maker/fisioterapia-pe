@@ -1,6 +1,6 @@
 {
-  "versionCode": 2,
-  "versionName": "1.1.0",
-  "notes": "Confirmação visual ao manter ou descartar fotos e vídeos; botão Verificar atualização com download e instalação assistida.",
-  "sha256": "f9318c08751cfa0f58450bf1ac7b230b60931882fcdf5584f4eb6b2facc6f16f"
+  "versionCode": 3,
+  "versionName": "1.2.0",
+  "notes": "Novo ícone, aba Álbuns com fotos por pasta, troca rápida e retomada do progresso salvo.",
+  "sha256": "3987483dcec6d3934011412eef5ae836cfd49423f8fd40d11ae776f2d5bf2d0f"
 }
