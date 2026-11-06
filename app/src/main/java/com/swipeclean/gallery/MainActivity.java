@@ -249,7 +249,10 @@ public class MainActivity extends Activity {
                     long id=c.getLong(0);String name=c.getString(1),mime=c.getString(2);
                     long size=c.getLong(3), date=c.getLong(4);
                     int type=c.getInt(5);
-                    Uri itemUri=ContentUris.withAppendedId(files,id);
+                    Uri itemUri=ContentUris.withAppendedId(
+                        type==MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO
+                          ? MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+                          : MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id);
                     found.add(new Item("local:"+id,itemUri,
                         name==null?"Sem nome":name,mime==null?"image/*":mime,size,date,
                         type==MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO,false));
