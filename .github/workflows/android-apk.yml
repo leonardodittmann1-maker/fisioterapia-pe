@@ -2,6 +2,9 @@ name: Gerar APK SwipeClean
 on:
   push:
     branches: [ swipe-clean-gallery-app ]
+    paths-ignore:
+      - 'downloads/**'
+      - 'updates/version.json'
   workflow_dispatch:
 permissions:
   contents: write
@@ -19,19 +22,39 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
+      - name: Restaurar assinatura de depuração
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: swipe-clean-android-signing-v1
+      - name: Preparar assinatura quando necessária
+        run: |
+          mkdir -p ~/.android
+          if [ ! -f ~/.android/debug.keystore ]; then
+            keytool -genkeypair -keystore ~/.android/debug.keystore -alias androiddebugkey -storepass android -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=SwipeClean Development, O=Personal, C=BR"
+          fi
       - name: Compilar APK
         run: gradle :app:assembleDebug --no-daemon
-      - name: Publicar APK para instalação direta
+      - name: Publicar APK e manifesto de atualização
         run: |
-          mkdir -p downloads
+          mkdir -p downloads updates
           cp app/build/outputs/apk/debug/app-debug.apk downloads/SwipeClean.apk
+          HASH=$(sha256sum downloads/SwipeClean.apk | cut -d' ' -f1)
+          cat > updates/version.json <<EOF
+          {
+            "versionCode": 2,
+            "versionName": "1.1.0",
+            "notes": "Confirmação visual ao manter ou descartar fotos e vídeos; botão Verificar atualização com download e instalação assistida.",
+            "sha256": "$HASH"
+          }
+          EOF
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add downloads/SwipeClean.apk
-          git commit -m "Disponibilizar APK SwipeClean" || true
+          git add downloads/SwipeClean.apk updates/version.json
+          git commit -m "Publicar APK SwipeClean v1.1.0" || true
           git push origin HEAD:swipe-clean-gallery-app
       - uses: actions/upload-artifact@v4
         with:
-          name: SwipeClean-APK
+          name: SwipeClean-v1.1.0-APK
           path: downloads/SwipeClean.apk
           retention-days: 90

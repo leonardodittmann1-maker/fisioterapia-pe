@@ -1,13 +1,12 @@
-# SwipeClean – organização de galeria por gestos
+# SwipeClean v1.1.0
 
-APK Android nativo. Funciona nos arquivos locais do MediaStore: Galeria Samsung, câmera e cópias locais do Google Fotos.
+- Esquerda / X: marca foto ou vídeo para descarte (mostra uma lixeira). Não apaga imediatamente.
+- Direita / coração: marca como mantida (mostra um coração).
+- Desfazer e revisão da fila antes da lixeira Android.
+- Botão **Verificar atualização**: lê um manifesto JSON no GitHub, compara versões, baixa um APK pela API nativa do Android, verifica o SHA-256 e abre o instalador oficial do Android.
+- A atualização ainda exige autorização de instalação no Samsung.
+- O app anterior (v1.0) pode usar outra assinatura de teste e exigir desinstalação antes da primeira instalação da v1.1; essa ação limpa apenas as decisões persistidas no app.
+- Cache de assinatura de desenvolvimento sujeito à retenção do GitHub Actions, não adequado para distribuição de produção.
+- Não é possível excluir fotos somente em nuvem no Google Fotos por meio deste app.
 
-- Esquerda: incluir na fila de lixeira. Direita: manter. Desfazer.
-- Fotos e vídeos; ordenação recente/antiga; continuação persistida; revisão e confirmação antes de mover à lixeira.
-- "Google Fotos": importação de um lote via seletor do Android, inclusive fotos em nuvem quando o provedor está habilitado. Itens selecionados exclusivamente na nuvem podem ser classificados, mas **não podem ser excluídos por este app** devido a restrições das APIs oficiais do Google Fotos.
-- Sem internet permission; mídia não enviada a nenhum servidor.
-- Android 11 ou superior.
-- Arquivo de instalação: [SwipeClean.apk](downloads/SwipeClean.apk).
-- No primeiro uso é obrigatório permitir o acesso às fotos do dispositivo. O Android pedirá confirmação adicional antes de mover mídias à lixeira.
-
-Projeto isolado em branch própria, sem modificar a branch principal.
+[Baixar APK](downloads/SwipeClean.apk)

@@ -3,8 +3,12 @@ package com.swipeclean.gallery;
 import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.DownloadManager;
 import android.app.PendingIntent;
 import android.content.ClipData;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.IntentFilter;
 import android.content.ContentUris;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -19,8 +23,10 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.Environment;
 import android.os.Looper;
 import android.provider.MediaStore;
+import android.provider.Settings;
 import android.util.Size;
 import android.view.Gravity;
 import android.view.MotionEvent;
@@ -33,6 +39,10 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.security.MessageDigest;
+import org.json.JSONObject;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayDeque;
@@ -49,7 +59,9 @@ import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity {
     static final int BG=0xff0b1020, PANEL=0xff182136, TEXT=0xfff3f6ff, MUTED=0xff9caaca, PINK=0xfffc537e, GREEN=0xff29d5a5, BLUE=0xff7a82ff;
-    static final int REQ_PERMISSION=11, REQ_CLOUD=12, REQ_TRASH=13;
+    static final int REQ_PERMISSION=11, REQ_CLOUD=12, REQ_TRASH=13, REQ_INSTALL_SOURCE=14;
+    static final String VERSION_URL="https://raw.githubusercontent.com/leonardodittmann1-maker/fisioterapia-pe/swipe-clean-gallery-app/updates/version.json";
+    static final String APK_URL="https://raw.githubusercontent.com/leonardodittmann1-maker/fisioterapia-pe/swipe-clean-gallery-app/downloads/SwipeClean.apk";
     final Handler ui=new Handler(Looper.getMainLooper());
     final ExecutorService worker=Executors.newSingleThreadExecutor();
     final ArrayList<Item> localItems=new ArrayList<>(), cloudItems=new ArrayList<>();
@@ -62,7 +74,17 @@ public class MainActivity extends Activity {
     LinearLayout feedbackBox;
     TextView feedbackIcon, feedbackMessage;
     Runnable hideFeedback;
-    TextView status, headline, hint, badge, subtitle, trashButton, undoButton, sourceButton, allChip, photoChip, videoChip;
+    TextView status, headline, hint, badge, subtitle, trashButton, undoButton, sourceButton, allChip, photoChip, videoChip, updateButton;
+    Uri pendingInstallUri;
+    boolean checkingUpdate=false, verifyingDownload=false;
+    final BroadcastReceiver downloadReceiver=new BroadcastReceiver() {
+        @Override public void onReceive(Context context,Intent intent){
+            if(DownloadManager.ACTION_DOWNLOAD_COMPLETE.equals(intent.getAction())) {
+                long id=intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID,-1);
+                if(id>0 && prefs!=null && prefs.getLong("updateDownloadId",-1)==id) examineDownload(id);
+            }
+        }
+    };
     boolean cloudMode=false, oldest=false, loading=false;
     int filter=0, imageVersion=0;
     float startX,startY;
@@ -93,6 +115,9 @@ public class MainActivity extends Activity {
         kept=new HashSet<>(prefs.getStringSet("keep",Collections.emptySet()));
         trash=new HashSet<>(prefs.getStringSet("trash",Collections.emptySet()));
         buildUi();
+        IntentFilter event=new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE);
+        if(Build.VERSION.SDK_INT>=33)registerReceiver(downloadReceiver,event,Context.RECEIVER_EXPORTED);
+        else registerReceiver(downloadReceiver,event);
         if (hasAccess()) scanLocal(); else requestAccess();
     }
 
@@ -122,6 +147,15 @@ public class MainActivity extends Activity {
         TextView order=button("↕ Data",PANEL,12);
         order.setOnClickListener(v->{oldest=!oldest;sortLocal();update();});
         titleLine.addView(order);
+        LinearLayout updateRow=new LinearLayout(this);
+        updateRow.setGravity(Gravity.CENTER_VERTICAL);
+        updateRow.setPadding(0,dp(2),0,dp(2));
+        page.addView(updateRow,new LinearLayout.LayoutParams(-1,dp(41)));
+        TextView versionLabel=label("SwipeClean v1.1",11,MUTED,false);
+        updateRow.addView(versionLabel,new LinearLayout.LayoutParams(0,-1,1));
+        updateButton=button("↻ Verificar atualização",PANEL,12);
+        updateRow.addView(updateButton,new LinearLayout.LayoutParams(-2,dp(37)));
+        updateButton.setOnClickListener(v->checkForUpdates());
 
         LinearLayout sources=new LinearLayout(this); sources.setPadding(0,dp(10),0,dp(10));sources.setGravity(Gravity.CENTER_VERTICAL);
         page.addView(sources);
@@ -314,6 +348,11 @@ public class MainActivity extends Activity {
     }
     @Override protected void onActivityResult(int req,int result,Intent data) {
         super.onActivityResult(req,result,data);
+        if(req==REQ_INSTALL_SOURCE) {
+            if(pendingInstallUri!=null && getPackageManager().canRequestPackageInstalls())
+                openSystemInstaller(pendingInstallUri);
+            return;
+        }
         if(req==REQ_TRASH) {
             if(result==RESULT_OK) {
                 HashSet<String> done=new HashSet<>(trash);
@@ -374,8 +413,9 @@ public class MainActivity extends Activity {
         if(!cloudMode)persist();
         update();
         showFeedback(discard ? "🗑" : "♥",
-            discard ? "PARA A LIXEIRA" : "MANTIDA",
+            discard ? (it.cloud ? "REVISAR NA NUVEM" : "MARCADA PARA DESCARTE") : "MANTIDA",
             discard ? 0xee883548 : 0xee116b5a);
+        card.performHapticFeedback(android.view.HapticFeedbackConstants.CONTEXT_CLICK);
     }
     void showFeedback(String icon, String message, int color) {
         if(hideFeedback!=null)ui.removeCallbacks(hideFeedback);
@@ -545,8 +585,176 @@ public class MainActivity extends Activity {
                 history.clear();update();
             }).show();
     }
+
+    void checkForUpdates() {
+        if(checkingUpdate)return;
+        checkingUpdate=true;
+        updateButton.setText("Consultando…");
+        worker.execute(()->{
+            String error=null;int remoteCode=-1;
+            String remoteVersion="",remoteNotes="",remoteSha="";
+            HttpURLConnection conn=null;
+            try {
+                URL url=new URL(VERSION_URL+"?now="+System.currentTimeMillis());
+                conn=(HttpURLConnection)url.openConnection();
+                conn.setConnectTimeout(9000);conn.setReadTimeout(9000);
+                conn.setUseCaches(false);
+                conn.setRequestProperty("Cache-Control","no-cache");
+                if(conn.getResponseCode()!=200)throw new Exception("Servidor respondeu "+conn.getResponseCode());
+                java.io.ByteArrayOutputStream buffer=new java.io.ByteArrayOutputStream();
+                try(InputStream in=conn.getInputStream()){
+                    byte[] tmp=new byte[4096];int n;
+                    while((n=in.read(tmp))!=-1){
+                        buffer.write(tmp,0,n);
+                        if(buffer.size()>16000)throw new Exception("Resposta inesperada");
+                    }
+                }
+                JSONObject version=new JSONObject(buffer.toString("UTF-8"));
+                remoteCode=version.getInt("versionCode");
+                remoteVersion=version.getString("versionName");
+                remoteNotes=version.optString("notes","");
+                remoteSha=version.getString("sha256").trim().toLowerCase(Locale.ROOT);
+                if(!remoteSha.matches("[0-9a-f]{64}"))throw new Exception("Integridade da atualização inválida");
+            } catch(Exception ex){error=ex.getMessage();}
+            finally{if(conn!=null)conn.disconnect();}
+            String err=error,name=remoteVersion,notes=remoteNotes,sha=remoteSha;
+            int code=remoteCode;
+            ui.post(()->{
+                if(isFinishing() || isDestroyed())return;
+                checkingUpdate=false;
+                updateButton.setText("↻ Verificar atualização");
+                if(err!=null){
+                    new AlertDialog.Builder(this).setTitle("Não foi possível verificar")
+                        .setMessage("Confira sua internet e tente novamente.\n\nDetalhes: "+err)
+                        .setPositiveButton("OK",null).show();
+                    return;
+                }
+                long installed=0;
+                try{installed=getPackageManager().getPackageInfo(getPackageName(),0).getLongVersionCode();}
+                catch(Exception ignored){}
+                if(code<=installed){
+                    new AlertDialog.Builder(this).setTitle("SwipeClean atualizado ✓")
+                        .setMessage("Você já tem a versão mais recente do SwipeClean.")
+                        .setPositiveButton("OK",null).show();
+                } else {
+                    new AlertDialog.Builder(this)
+                        .setTitle("Nova versão disponível: "+name)
+                        .setMessage("Versão instalada: "+getInstalledVersion()+"\n\n"+notes+
+                            "\n\nO arquivo será baixado dentro do aplicativo. O Android pedirá sua autorização para instalar.")
+                        .setNegativeButton("Agora não",null)
+                        .setPositiveButton("Baixar atualização",(d,w)->downloadUpdate(name,sha))
+                        .show();
+                }
+            });
+        });
+    }
+    String getInstalledVersion() {
+        try{return getPackageManager().getPackageInfo(getPackageName(),0).versionName;}
+        catch(Exception ex){return "desconhecida";}
+    }
+    void downloadUpdate(String version,String sha) {
+        try{
+            DownloadManager dm=(DownloadManager)getSystemService(DOWNLOAD_SERVICE);
+            DownloadManager.Request req=new DownloadManager.Request(Uri.parse(APK_URL));
+            req.setTitle("SwipeClean "+version);
+            req.setDescription("Atualização do SwipeClean");
+            req.setMimeType("application/vnd.android.package-archive");
+            req.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+            req.setDestinationInExternalFilesDir(this,Environment.DIRECTORY_DOWNLOADS,
+                "SwipeClean-"+version+"-"+System.currentTimeMillis()+".apk");
+            long id=dm.enqueue(req);
+            prefs.edit().putLong("updateDownloadId",id)
+                .putString("updateExpectedSha",sha).apply();
+            Toast.makeText(this,"Baixando atualização no celular…",Toast.LENGTH_LONG).show();
+        }catch(Exception ex){
+            new AlertDialog.Builder(this).setTitle("Falha ao iniciar download")
+                .setMessage("Não foi possível baixar: "+ex.getMessage())
+                .setPositiveButton("OK",null).show();
+        }
+    }
+    void examineDownload(long id){
+        if(verifyingDownload)return;
+        DownloadManager dm=(DownloadManager)getSystemService(DOWNLOAD_SERVICE);
+        try(Cursor cursor=dm.query(new DownloadManager.Query().setFilterById(id))) {
+            if(cursor==null||!cursor.moveToFirst())return;
+            int state=cursor.getInt(cursor.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS));
+            if(state!=DownloadManager.STATUS_SUCCESSFUL&&state!=DownloadManager.STATUS_FAILED)return;
+            prefs.edit().remove("updateDownloadId").apply();
+            if(state==DownloadManager.STATUS_FAILED){
+                new AlertDialog.Builder(this).setTitle("Download falhou")
+                    .setMessage("A atualização não foi baixada. Tente novamente pelo botão.")
+                    .setPositiveButton("OK",null).show();return;
+            }
+            Uri uri=dm.getUriForDownloadedFile(id);
+            if(uri==null)throw new Exception("Arquivo da atualização não encontrado");
+            String expected=prefs.getString("updateExpectedSha","");
+            verifyingDownload=true;
+            worker.execute(()->{
+                String error=null;
+                try {
+                    MessageDigest digest=MessageDigest.getInstance("SHA-256");
+                    try(InputStream input=getContentResolver().openInputStream(uri)) {
+                        if(input==null)throw new Exception("Sem acesso ao arquivo");
+                        byte[] bytes=new byte[8192];int n;
+                        while((n=input.read(bytes))!=-1)digest.update(bytes,0,n);
+                    }
+                    StringBuilder hex=new StringBuilder();
+                    for(byte x:digest.digest())hex.append(String.format(Locale.ROOT,"%02x",x&0xff));
+                    if(!expected.equalsIgnoreCase(hex.toString()))
+                        throw new Exception("A verificação de segurança do APK falhou");
+                }catch(Exception ex){error=ex.getMessage();}
+                String problem=error;
+                ui.post(()->{
+                    verifyingDownload=false;
+                    if(isFinishing()||isDestroyed())return;
+                    if(problem!=null){
+                        new AlertDialog.Builder(this).setTitle("Atualização interrompida")
+                            .setMessage("O APK não será instalado. "+problem)
+                            .setPositiveButton("OK",null).show();
+                    }else requestApkInstall(uri);
+                });
+            });
+        }catch(Exception ex){
+            new AlertDialog.Builder(this).setTitle("Erro no arquivo baixado")
+                .setMessage(ex.getMessage()).setPositiveButton("OK",null).show();
+        }
+    }
+    void requestApkInstall(Uri uri){
+        pendingInstallUri=uri;
+        if(!getPackageManager().canRequestPackageInstalls()){
+            new AlertDialog.Builder(this).setTitle("Autorizar instalação")
+                .setMessage("Para atualizar o SwipeClean pelo aplicativo, habilite 'Permitir desta fonte' na próxima tela do Android. Depois, volte ao SwipeClean.")
+                .setNegativeButton("Depois",null)
+                .setPositiveButton("Abrir configuração",(d,w)->{
+                    Intent settings=new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                        Uri.parse("package:"+getPackageName()));
+                    startActivityForResult(settings,REQ_INSTALL_SOURCE);
+                }).show();
+        }else openSystemInstaller(uri);
+    }
+    void openSystemInstaller(Uri uri) {
+        try{
+            Intent install=new Intent(Intent.ACTION_VIEW);
+            install.setDataAndType(uri,"application/vnd.android.package-archive");
+            install.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            startActivity(install);
+        }catch(Exception ex){
+            new AlertDialog.Builder(this).setTitle("Instalação")
+                .setMessage("O arquivo foi baixado, mas o instalador não abriu. Abra Downloads no celular e toque no APK SwipeClean.")
+                .setPositiveButton("OK",null).show();
+        }
+    }
+    @Override protected void onResume() {
+        super.onResume();
+        if(prefs!=null) {
+            long id=prefs.getLong("updateDownloadId",-1);
+            if(id>0)ui.postDelayed(()->examineDownload(id),300);
+        }
+    }
+
     @Override public void onDestroy() {
         if(hideFeedback!=null)ui.removeCallbacks(hideFeedback);
+        try{unregisterReceiver(downloadReceiver);}catch(Exception ignored){}
         imageVersion++;worker.shutdownNow();super.onDestroy();
     }
 }
