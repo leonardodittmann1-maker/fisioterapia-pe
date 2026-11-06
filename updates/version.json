@@ -2,5 +2,5 @@
   "versionCode": 4,
   "versionName": "1.3.0",
   "notes": "Corrigido botão Verificar atualização: download integrado, checagem SHA-256, instalação pelo Android e alternativa pelo navegador.",
-  "sha256": "f9b5782a79fdf085a49bfc3db2e81cf3a06b27e772da8327be6cd58ebb6b74e3"
+  "sha256": "a4241c731806435ca01ebf715f2b0aceac1f6c76778e78d2335e3b8078c82481"
 }
