@@ -33,6 +33,7 @@ jobs:
           if [ ! -f ~/.android/debug.keystore ]; then
             keytool -genkeypair -keystore ~/.android/debug.keystore -alias androiddebugkey -storepass android -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=SwipeClean Development, O=Personal, C=BR"
           fi
+          keytool -list -keystore ~/.android/debug.keystore -alias androiddebugkey -storepass android | grep -E "(SHA256|Alias name)" || true
       - name: Compilar APK
         run: gradle :app:assembleDebug --no-daemon
       - name: Publicar APK e manifesto de atualização
@@ -42,19 +43,19 @@ jobs:
           HASH=$(sha256sum downloads/SwipeClean.apk | cut -d' ' -f1)
           cat > updates/version.json <<EOF
           {
-            "versionCode": 4,
-            "versionName": "1.3.0",
-            "notes": "Corrigido botão Verificar atualização: download integrado, checagem SHA-256, instalação pelo Android e alternativa pelo navegador.",
+            "versionCode": 5,
+            "versionName": "1.4.0",
+            "notes": "Atualizador corrigido: verificação rápida, download seguro, instalador Android e assinatura estabilizada para novas versões.",
             "sha256": "$HASH"
           }
           EOF
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add downloads/SwipeClean.apk updates/version.json
-          git commit -m "Publicar APK SwipeClean v1.3.0" || true
+          git commit -m "Publicar APK SwipeClean v1.4.0" || true
           git push origin HEAD:swipe-clean-gallery-app
       - uses: actions/upload-artifact@v4
         with:
-          name: SwipeClean-v1.3.0-APK
+          name: SwipeClean-v1.4.0-APK
           path: downloads/SwipeClean.apk
           retention-days: 90
