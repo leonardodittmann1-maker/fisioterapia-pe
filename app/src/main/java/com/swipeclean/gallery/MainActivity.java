@@ -642,7 +642,6 @@ public class MainActivity extends Activity {
     void openCloudPicker() {
         if(Build.VERSION.SDK_INT>=33) {
             Intent picker=new Intent(MediaStore.ACTION_PICK_IMAGES);
-            picker.setType("*/*");
             picker.putExtra(MediaStore.EXTRA_PICK_IMAGES_MAX,Math.min(150,MediaStore.getPickImagesMaxLimit()));
             try {startActivityForResult(picker,REQ_CLOUD);return;}
             catch(android.content.ActivityNotFoundException ignored){}
@@ -1022,7 +1021,7 @@ public class MainActivity extends Activity {
             picture.setImageDrawable(null);picture.setBackground(shape(PANEL,20));
             badge.setText(pool.isEmpty()?"Sem arquivos":"✓ CONCLUÍDO");
             headline.setText(pool.isEmpty()?"Nenhuma mídia encontrada":"Você terminou esta seleção!");
-            subtitle.setText(cloudMode?"Selecione outro lote ou revise seus descartes.":
+            subtitle.setText(cloudMode?"Use Google Fotos para adicionar mídias ou revisar descartes.":
                 (pool.isEmpty()?"Autorize acesso completo à galeria ou troque o filtro.":"Revise os descartes ou reinicie as decisões."));
             return;
         }
