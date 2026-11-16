@@ -3,19 +3,11 @@ android {
   namespace 'com.swipeclean.gallery'
   compileSdk 35
   defaultConfig {
-    applicationId 'com.swipeclean.gallery'
+    applicationId 'com.swipeclean.gallery.v2'
     minSdk 30
     targetSdk 35
-    versionCode 8
-    versionName '1.7.0'
-  }
-  signingConfigs {
-    debug {
-      storeFile file(System.getenv('HOME') + '/.android/debug.keystore')
-      storePassword 'android'
-      keyAlias 'androiddebugkey'
-      keyPassword 'android'
-    }
+    versionCode 9
+    versionName '2.0.0'
   }
   compileOptions {
     sourceCompatibility JavaVersion.VERSION_17

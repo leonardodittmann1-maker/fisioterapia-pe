@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "SwipeClean para Google Fotos",
+  "version": "1.0.0",
+  "description": "Revise fotos e vídeos do Google Fotos no navegador. Confirme cada descarte na lixeira da própria página.",
+  "action": {
+    "default_title": "SwipeClean para Google Fotos"
+  },
+  "permissions": ["activeTab", "scripting", "storage"],
+  "background": {
+    "service_worker": "launcher.js"
+  }
+}

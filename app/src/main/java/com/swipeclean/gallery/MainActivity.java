@@ -16,7 +16,9 @@ import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
+import android.graphics.ImageDecoder;
+import android.graphics.Insets;
+import android.media.MediaMetadataRetriever;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -33,6 +35,7 @@ import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.WindowInsets;
 import android.widget.FrameLayout;
 import android.widget.EditText;
 import android.text.Editable;
@@ -49,6 +52,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.security.MessageDigest;
 import org.json.JSONObject;
+import org.json.JSONArray;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayDeque;
@@ -66,8 +70,8 @@ import java.util.concurrent.Executors;
 public class MainActivity extends Activity {
     static final int BG=0xff0b1020, PANEL=0xff182136, TEXT=0xfff3f6ff, MUTED=0xff9caaca, PINK=0xfffc537e, GREEN=0xff29d5a5, BLUE=0xff7a82ff;
     static final int REQ_PERMISSION=11, REQ_CLOUD=12, REQ_TRASH=13, REQ_INSTALL_SOURCE=14, REQ_MOVE=15;
-    static final String VERSION_URL="https://raw.githubusercontent.com/leonardodittmann1-maker/fisioterapia-pe/swipe-clean-gallery-app/updates/version.json";
-    static final String APK_URL="https://raw.githubusercontent.com/leonardodittmann1-maker/fisioterapia-pe/swipe-clean-gallery-app/downloads/SwipeClean.apk";
+    static final String VERSION_URL="https://raw.githubusercontent.com/leonardodittmann1-maker/fisioterapia-pe/swipe-clean-gallery-app/updates/v2.json";
+    static final String APK_URL="https://raw.githubusercontent.com/leonardodittmann1-maker/fisioterapia-pe/swipe-clean-gallery-app/downloads/SwipeClean-v2.apk";
     final Handler ui=new Handler(Looper.getMainLooper());
     final ExecutorService worker=Executors.newSingleThreadExecutor();
     final ExecutorService coverWorker=Executors.newFixedThreadPool(2);
@@ -87,6 +91,7 @@ public class MainActivity extends Activity {
     TextView status, headline, hint, badge, subtitle, trashButton, undoButton, sourceButton, allChip, photoChip, videoChip, updateButton;
     Uri pendingInstallUri;
     boolean checkingUpdate=false, verifyingDownload=false;
+    TextView moveAction, modeButton;
     boolean cloudMode=false, oldest=false, loading=false, movePending=false;
     int filter=0, imageVersion=0;
     float startX,startY;
@@ -140,8 +145,21 @@ public class MainActivity extends Activity {
         browsingAlbum=prefs.getBoolean("browsing_album",false);
         oldest=prefs.getBoolean("oldest",false);
         filter=prefs.getInt("filter",0);
+        restoreCloud();
         buildUi();
         if (hasAccess()) scanLocal(); else requestAccess();
+    }
+
+    static void insetPage(View page) {
+        int left=page.getPaddingLeft(), top=page.getPaddingTop();
+        int right=page.getPaddingRight(), bottom=page.getPaddingBottom();
+        page.setOnApplyWindowInsetsListener((view, insets)->{
+            if(Build.VERSION.SDK_INT>=35) {
+                Insets system=insets.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout());
+                view.setPadding(left+system.left,top+system.top,right+system.right,bottom+system.bottom);
+            }
+            return insets;
+        });
     }
 
     int dp(float n) { return Math.round(getResources().getDisplayMetrics().density*n); }
@@ -162,6 +180,7 @@ public class MainActivity extends Activity {
     void buildUi() {
         page=new LinearLayout(this);page.setOrientation(LinearLayout.VERTICAL);
         page.setBackgroundColor(BG);page.setPadding(dp(15),dp(9),dp(15),dp(13));
+        insetPage(page);
         setContentView(page);
         LinearLayout titleLine=new LinearLayout(this);titleLine.setGravity(Gravity.CENTER_VERTICAL);
         page.addView(titleLine,new LinearLayout.LayoutParams(-1,dp(45)));
@@ -173,11 +192,16 @@ public class MainActivity extends Activity {
             sortLocal();buildAlbums();update();
         });
         titleLine.addView(order);
+        modeButton=button("Modos ▾",PANEL,12);
+        LinearLayout.LayoutParams modeParams=new LinearLayout.LayoutParams(-2,-2);
+        modeParams.leftMargin=dp(5);
+        titleLine.addView(modeButton,modeParams);
+        modeButton.setOnClickListener(v->chooseReviewMode());
         LinearLayout updateRow=new LinearLayout(this);
         updateRow.setGravity(Gravity.CENTER_VERTICAL);
         updateRow.setPadding(0,dp(2),0,dp(2));
         page.addView(updateRow,new LinearLayout.LayoutParams(-1,dp(41)));
-        TextView versionLabel=label("SwipeClean v1.6",11,MUTED,false);
+        TextView versionLabel=label("v"+getInstalledVersion(),11,MUTED,false);
         updateRow.addView(versionLabel,new LinearLayout.LayoutParams(0,-1,1));
         updateButton=button("↻ Verificar atualização",PANEL,12);
         updateRow.addView(updateButton,new LinearLayout.LayoutParams(-2,dp(37)));
@@ -291,7 +315,7 @@ public class MainActivity extends Activity {
         swipeSection.addView(actions,new LinearLayout.LayoutParams(-1,dp(65)));
         TextView no=button("✕ Descartar",0xff793148,13);
         TextView yes=button("♥ Manter",0xff125d53,13);
-        TextView move=button("📁 Mover",0xff354b9e,13);
+        TextView move=button("📁 Mover",0xff354b9e,13);moveAction=move;
         actions.addView(no,new LinearLayout.LayoutParams(0,dp(62),1));
         LinearLayout.LayoutParams gap1=new LinearLayout.LayoutParams(0,dp(62),1);gap1.leftMargin=dp(6);
         actions.addView(yes,gap1);
@@ -369,6 +393,21 @@ public class MainActivity extends Activity {
         navAlbums.setOnClickListener(v->switchTab(true));
         switchTab(false);
     }
+    void chooseReviewMode() {
+        String[] modes={"Fotos e vídeos do celular","Google Fotos","Arquivos e PDFs","Apps instalados"};
+        new AlertDialog.Builder(this).setTitle("O que você quer revisar?")
+            .setItems(modes,(dialog,which)->{
+                if(which==0) {
+                    cloudMode=false;
+                    history.clear();
+                    switchTab(false);
+                    if(!hasAccess())requestAccess();
+                } else if(which==1)chooseCloud();
+                else startActivity(new Intent(this,DeviceReviewActivity.class).putExtra(
+                    DeviceReviewActivity.EXTRA_MODE,which==2?"files":"apps"));
+            }).show();
+    }
+
     void addChip(TextView t,int value) {
         LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(38),1);
         if(value>0)p.leftMargin=dp(9);
@@ -574,25 +613,116 @@ public class MainActivity extends Activity {
         });
     }
     void chooseCloud() {
-        new AlertDialog.Builder(this).setTitle("Google Fotos – arquivos da nuvem")
-          .setMessage("Selecione fotos ou vídeos pelo seletor do Android. O acesso aos itens da nuvem depende da configuração do Google Fotos.\n\nImportante: o Google não permite que este app apague arquivos exclusivamente na nuvem. Os descartes desse modo serão uma lista de revisão; você precisará excluir os originais pelo Google Fotos.")
-          .setNegativeButton("Cancelar",null)
-          .setPositiveButton("Selecionar mídias",(d,w)->openCloudPicker()).show();
+        String[] options={"Continuar revisão ("+cloudItems.size()+" selecionados)",
+            "Adicionar fotos e vídeos","Gerenciar armazenamento no Google","Como selecionar fotos na nuvem"};
+        new AlertDialog.Builder(this).setTitle("Google Fotos")
+            .setItems(options,(dialog,which)->{
+                if(which==0)showCloudReview();
+                else if(which==1)openCloudPicker();
+                else if(which==2)openGoogleStorage();
+                else new AlertDialog.Builder(this).setTitle("Selecionar da nuvem")
+                    .setMessage("No seletor de fotos do Android, verifique nas configurações se o Google Fotos é a fonte na nuvem. O SwipeClean salva as decisões. Para excluir da conta, abra o Google Fotos.")
+                    .setPositiveButton("Entendi",null).show();
+            }).setNegativeButton("Voltar",null).show();
     }
+
+    void showCloudReview() {
+        if(!cloudMode){history.clear();undoFocusKey="";}
+        cloudMode=true;
+        filter=0;
+        switchTab(false);
+    }
+
+    void openGoogleStorage() {
+        try { startActivity(new Intent(Intent.ACTION_VIEW,
+            Uri.parse("https://one.google.com/storage/management"))); }
+        catch(RuntimeException e){Toast.makeText(this,"Abra Gerenciar armazenamento no Google Fotos.",Toast.LENGTH_LONG).show();}
+    }
+
     void openCloudPicker() {
-        Intent i;
         if(Build.VERSION.SDK_INT>=33) {
-            i=new Intent(MediaStore.ACTION_PICK_IMAGES);
-            i.setType("*/*");
-            i.putExtra(MediaStore.EXTRA_PICK_IMAGES_MAX,Math.min(50,MediaStore.getPickImagesMaxLimit()));
-        } else {
-            i=new Intent(Intent.ACTION_GET_CONTENT);
-            i.setType("*/*");i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE,true);
-            i.putExtra(Intent.EXTRA_MIME_TYPES,new String[]{"image/*","video/*"});
-            i.addCategory(Intent.CATEGORY_OPENABLE);
+            Intent picker=new Intent(MediaStore.ACTION_PICK_IMAGES);
+            picker.setType("*/*");
+            picker.putExtra(MediaStore.EXTRA_PICK_IMAGES_MAX,Math.min(150,MediaStore.getPickImagesMaxLimit()));
+            try {startActivityForResult(picker,REQ_CLOUD);return;}
+            catch(android.content.ActivityNotFoundException ignored){}
         }
-        try{startActivityForResult(i,REQ_CLOUD);}
-        catch(Exception e){Toast.makeText(this,"Não foi possível abrir o seletor de fotos.",Toast.LENGTH_LONG).show();}
+        Intent documents=new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        documents.setType("*/*");
+        documents.putExtra(Intent.EXTRA_ALLOW_MULTIPLE,true);
+        documents.putExtra(Intent.EXTRA_MIME_TYPES,new String[]{"image/*","video/*"});
+        documents.addCategory(Intent.CATEGORY_OPENABLE);
+        try{startActivityForResult(documents,REQ_CLOUD);}
+        catch(RuntimeException e){Toast.makeText(this,"Não foi possível abrir o seletor de fotos.",Toast.LENGTH_LONG).show();}
+    }
+
+    void restoreCloud() {
+        cloudKept=new HashSet<>(prefs.getStringSet("cloud_keep",Collections.emptySet()));
+        cloudTrash=new HashSet<>(prefs.getStringSet("cloud_trash",Collections.emptySet()));
+        try {
+            JSONArray saved=new JSONArray(prefs.getString("cloud_items","[]"));
+            for(int i=0;i<saved.length();i++) {
+                JSONObject row=saved.getJSONObject(i);
+                Uri uri=Uri.parse(row.getString("uri"));
+                String mime=row.getString("mime");
+                cloudItems.add(new Item("cloud:"+uri,uri,row.getString("name"),mime,
+                    row.optLong("size"),0,mime.startsWith("video/"),true));
+            }
+        }catch(org.json.JSONException ignored){}
+    }
+
+    void persistCloud() {
+        JSONArray saved=new JSONArray();
+        try {
+            for(Item item:cloudItems) {
+                saved.put(new JSONObject().put("uri",item.uri.toString()).put("name",item.name)
+                    .put("mime",item.mime).put("size",item.size));
+            }
+        } catch(org.json.JSONException e){throw new IllegalStateException(e);}
+        prefs.edit().putString("cloud_items",saved.toString())
+            .putStringSet("cloud_keep",new HashSet<>(cloudKept))
+            .putStringSet("cloud_trash",new HashSet<>(cloudTrash)).apply();
+    }
+
+    void addCloudSelection(Intent data) {
+        Set<Uri> picked=new java.util.LinkedHashSet<>();
+        if(data.getClipData()!=null) {
+            ClipData clips=data.getClipData();
+            for(int i=0;i<clips.getItemCount();i++)picked.add(clips.getItemAt(i).getUri());
+        }
+        if(data.getData()!=null)picked.add(data.getData());
+        for(Uri uri:picked) {
+            try {getContentResolver().takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION);}
+            catch(SecurityException ignored){}
+        }
+        worker.execute(()->{
+            ArrayList<Item> additions=new ArrayList<>();
+            for(Uri uri:picked) {
+                String mime="image/jpeg",name="Mídia selecionada";
+                long size=0;
+                try {
+                    String detected=getContentResolver().getType(uri);
+                    if(detected!=null)mime=detected;
+                    try(Cursor c=getContentResolver().query(uri,new String[]{
+                        android.provider.OpenableColumns.DISPLAY_NAME,android.provider.OpenableColumns.SIZE},
+                        null,null,null)) {
+                        if(c!=null&&c.moveToFirst()) {
+                            if(!c.isNull(0))name=c.getString(0);
+                            if(!c.isNull(1))size=c.getLong(1);
+                        }
+                    }
+                }catch(RuntimeException ignored){}
+                additions.add(new Item("cloud:"+uri,uri,name,mime,size,0,mime.startsWith("video/"),true));
+            }
+            ui.post(()->{
+                if(isDestroyed())return;
+                Set<String> keys=new HashSet<>();
+                for(Item item:cloudItems)keys.add(item.key);
+                for(Item item:additions)if(keys.add(item.key))cloudItems.add(item);
+                persistCloud();
+                showCloudReview();
+            });
+        });
     }
     @Override protected void onActivityResult(int req,int result,Intent data) {
         super.onActivityResult(req,result,data);
@@ -615,31 +745,7 @@ public class MainActivity extends Activity {
             } else Toast.makeText(this,"Exclusão cancelada. Seleção mantida.",Toast.LENGTH_SHORT).show();
             update();
         } else if(req==REQ_CLOUD && result==RESULT_OK && data!=null) {
-            ArrayList<Uri> picked=new ArrayList<>();
-            if(data.getClipData()!=null) {
-                ClipData c=data.getClipData();
-                for(int j=0;j<c.getItemCount();j++)picked.add(c.getItemAt(j).getUri());
-            }
-            if(data.getData()!=null)picked.add(data.getData());
-            cloudItems.clear();cloudKept.clear();cloudTrash.clear();history.clear();
-            for(Uri uri:picked){
-                String mime=getContentResolver().getType(uri);
-                if(mime==null)mime="image/jpeg";
-                String name="Mídia selecionada";long size=0;
-                try(Cursor c=getContentResolver().query(uri,new String[]{
-                    android.provider.OpenableColumns.DISPLAY_NAME,
-                    android.provider.OpenableColumns.SIZE},null,null,null)){
-                    if(c!=null&&c.moveToFirst()){
-                        if(!c.isNull(0))name=c.getString(0);
-                        if(!c.isNull(1))size=c.getLong(1);
-                    }
-                }catch(Exception ignored){}
-                boolean video=mime.startsWith("video/");
-                String key="cloud:"+uri;
-                boolean present=false;for(Item old:cloudItems)if(old.key.equals(key))present=true;
-                if(!present)cloudItems.add(new Item(key,uri,name,mime,size,0,video,true));
-            }
-            cloudMode=true;filter=0;update();
+            addCloudSelection(data);
         }
     }
     ArrayList<Item> visiblePool() {
@@ -846,7 +952,7 @@ public class MainActivity extends Activity {
             prefs.edit().putString("last_media:"+selectedAlbum,it.key)
                 .putString("last_media:"+ALL_ALBUMS,it.key).apply();
             persist();buildAlbums();
-        }
+        }else persistCloud();
         update();
         showFeedback(discard ? "✕" : "♥",
             discard ? (it.cloud ? "Revisar na nuvem" : "Marcada para descarte") : "Mantida",
@@ -884,7 +990,7 @@ public class MainActivity extends Activity {
             if(!move.cloud){
                 prefs.edit().putString("undo_focus_key",move.key).apply();
                 persist();buildAlbums();
-            }
+            }else persistCloud();
             update();
             showFeedback("↶","Desfeito",BLUE);
             return;
@@ -902,7 +1008,8 @@ public class MainActivity extends Activity {
         boolean albumDetails=browsingAlbum&&!cloudMode;
         albumBrowseRow.setVisibility(albumDetails?View.VISIBLE:View.GONE);
         sourceRow.setVisibility(albumDetails?View.GONE:View.VISIBLE);
-        albumSelector.setVisibility(albumDetails?View.GONE:View.VISIBLE);
+        albumSelector.setVisibility(albumDetails||cloudMode?View.GONE:View.VISIBLE);
+        moveAction.setVisibility(cloudMode?View.GONE:View.VISIBLE);
         albumBrowseTitle.setText(currentAlbumName());
         ArrayList<Item> pool=visiblePool();
         int reviewed=0;
@@ -929,19 +1036,35 @@ public class MainActivity extends Activity {
         int version=imageVersion;
         worker.execute(()->{
             Bitmap result=null;
-            try {
-                if(Build.VERSION.SDK_INT>=29) result=getContentResolver().loadThumbnail(it.uri,new Size(1080,1440),null);
-                else {
-                    BitmapFactory.Options opt=new BitmapFactory.Options();opt.inSampleSize=4;
-                    try(InputStream s=getContentResolver().openInputStream(it.uri)){result=BitmapFactory.decodeStream(s,null,opt);}
-                }
-            }catch(Exception ignored){}
+            try {result=getContentResolver().loadThumbnail(it.uri,new Size(1080,1440),null);}
+            catch(Exception ignored){}
+            if(result==null&&it.cloud) {
+                try {
+                    if(it.video) {
+                        try(MediaMetadataRetriever retriever=new MediaMetadataRetriever()) {
+                            retriever.setDataSource(this,it.uri);
+                            result=retriever.getScaledFrameAtTime(-1,MediaMetadataRetriever.OPTION_CLOSEST_SYNC,720,720);
+                        }
+                    } else {
+                        result=ImageDecoder.decodeBitmap(ImageDecoder.createSource(getContentResolver(),it.uri),
+                            (decoder,info,source)->{
+                                int max=Math.max(info.getSize().getWidth(),info.getSize().getHeight());
+                                decoder.setTargetSampleSize(Math.max(1,(max+1079)/1080));
+                            });
+                    }
+                }catch(Exception ignored){}
+            }
             Bitmap ready=result;
-            ui.post(()->{if(version==imageVersion && displayed==it)picture.setImageBitmap(ready);});
+            ui.post(()->{
+                if(version!=imageVersion||displayed!=it)return;
+                picture.setImageBitmap(ready);
+                if(ready==null&&it.cloud)subtitle.setText("Prévia indisponível. Tente Abrir ou selecione novamente.");
+            });
         });
     }
     String prettySize(long v) {
         if(v<=0)return "Tamanho indisponível";
+        if(v>=1073741824)return String.format(Locale.getDefault(),"%.2f GB",v/1073741824f);
         if(v>=1048576)return String.format(Locale.getDefault(),"%.1f MB",v/1048576f);
         return String.format(Locale.getDefault(),"%.0f KB",v/1024f);
     }
@@ -965,16 +1088,18 @@ public class MainActivity extends Activity {
                     decide(delta<0);
                 }else{
                     card.animate().translationX(0).rotation(0).alpha(1).setDuration(170).start();
-                    if(!swiping && Math.abs(e.getRawY()-startY)<dp(12))openDisplayed();
+                    if(e.getActionMasked()==MotionEvent.ACTION_UP&&!swiping&&Math.abs(e.getRawY()-startY)<dp(12))openDisplayed();
                 }
                 return true;
         }
         return true;
     }
     void openDisplayed() {
-        if(displayed==null)return;
+        if(displayed!=null)openMedia(displayed);
+    }
+    void openMedia(Item item) {
         Intent intent=new Intent(Intent.ACTION_VIEW);
-        intent.setDataAndType(displayed.uri,displayed.mime);
+        intent.setDataAndType(item.uri,item.mime);
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
         try{startActivity(intent);}catch(Exception e){
             Toast.makeText(this,"Não foi possível abrir esta mídia em outro aplicativo.",Toast.LENGTH_LONG).show();
@@ -989,11 +1114,24 @@ public class MainActivity extends Activity {
         }
         int count=marked.size();long bytes=0;StringBuilder names=new StringBuilder();
         for(Item it:(cloudMode?cloudItems:localItems))if(marked.contains(it.key)){
-            bytes+=it.size;if(names.length()<700)names.append("• ").append(it.name).append("\n");
+            bytes+=it.size;
+            if(cloudMode||names.length()<700)names.append("• ").append(it.name).append("\n");
         }
         if(cloudMode) {
+            LinearLayout reviewContent=new LinearLayout(this);
+            reviewContent.setOrientation(LinearLayout.VERTICAL);
+            reviewContent.setPadding(dp(22),dp(8),dp(22),dp(8));
+            reviewContent.addView(label("As marcações ficam no SwipeClean. Abra o Google Fotos para excluir da conta.",14,0xff202b42,false));
+            for(Item item:cloudItems)if(marked.contains(item.key)) {
+                TextView name=label(item.name,14,0xff202b42,false);
+                name.setPadding(0,dp(9),0,dp(9));
+                name.setOnClickListener(v->openMedia(item));
+                reviewContent.addView(name);
+            }
+            ScrollView cloudList=new ScrollView(this);
+            cloudList.addView(reviewContent);
             new AlertDialog.Builder(this).setTitle(count+" itens para revisar no Google Fotos")
-                .setMessage("ATENÇÃO: esses itens NÃO foram excluídos da nuvem. O Google impede a exclusão de fotos da conta por apps de terceiros.\n\n"+names)
+                .setView(cloudList)
                 .setNegativeButton("Voltar",null)
                 .setNeutralButton("Compartilhar lista",(d,w)->{
                     Intent send=new Intent(Intent.ACTION_SEND);send.setType("text/plain");
@@ -1001,8 +1139,9 @@ public class MainActivity extends Activity {
                     startActivity(Intent.createChooser(send,"Compartilhar lista"));
                 })
                 .setPositiveButton("Abrir Google Fotos",(d,w)->{
-                    try{startActivity(getPackageManager().getLaunchIntentForPackage("com.google.android.apps.photos"));}
-                    catch(Exception e){Toast.makeText(this,"Abra o aplicativo Google Fotos.",Toast.LENGTH_SHORT).show();}
+                    Intent photos=getPackageManager().getLaunchIntentForPackage("com.google.android.apps.photos");
+                    if(photos==null)openGoogleStorage();
+                    else startActivity(photos);
                 }).show();
             return;
         }
@@ -1032,7 +1171,7 @@ public class MainActivity extends Activity {
             .setMessage("Isso apaga somente as decisões salvas no SwipeClean, não suas fotos ou vídeos.")
             .setNegativeButton("Cancelar",null)
             .setPositiveButton("Recomeçar",(d,w)->{
-                if(cloudMode){cloudKept.clear();cloudTrash.clear();}
+                if(cloudMode){cloudKept.clear();cloudTrash.clear();persistCloud();}
                 else {kept.clear();trash.clear();persist();}
                 history.clear();clearUndoFocus();buildAlbums();update();
             }).show();

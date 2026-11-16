@@ -6,8 +6,17 @@
  <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED"/>
  <uses-permission android:name="android.permission.INTERNET"/>
  <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
- <application android:icon="@drawable/ic_launcher" android:roundIcon="@drawable/ic_launcher" android:label="SwipeClean" android:theme="@android:style/Theme.Material.Light.NoActionBar" android:allowBackup="false" android:supportsRtl="true" android:usesCleartextTraffic="false">
-  <provider android:name=".UpdateApkProvider" android:authorities="com.swipeclean.gallery.updates" android:exported="false" android:grantUriPermissions="true"/>
+ <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES"/>
+ <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"/>
+ <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"/>
+ <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"/>
+ <queries>
+  <package android:name="com.google.android.apps.photos"/>
+ </queries>
+ <application android:icon="@drawable/ic_launcher" android:roundIcon="@drawable/ic_launcher" android:label="SwipeClean 2" android:theme="@android:style/Theme.Material.Light.NoActionBar" android:allowBackup="false" android:supportsRtl="true" android:usesCleartextTraffic="false">
+  <provider android:name=".UpdateApkProvider" android:authorities="${applicationId}.updates" android:exported="false" android:grantUriPermissions="true"/>
+  <provider android:name=".ReviewFileProvider" android:authorities="${applicationId}.documents" android:exported="false" android:grantUriPermissions="true"/>
+  <activity android:name=".DeviceReviewActivity" android:exported="false" android:screenOrientation="portrait"/>
   <activity android:name=".MainActivity" android:exported="true" android:screenOrientation="portrait">
    <intent-filter>
     <action android:name="android.intent.action.MAIN"/>

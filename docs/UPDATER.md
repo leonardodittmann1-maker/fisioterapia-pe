@@ -1,7 +1,14 @@
 # Atualização do SwipeClean
 
-- V1.4: download por HTTPS usando executor independente, verificação do arquivo completo com SHA-256 e fornecimento do APK para o instalador Android por ContentProvider dedicado (somente leitura).
-- A assinatura debug do aplicativo é configurada explicitamente para a chave do cache da compilação. O workflow restaura a chave antes do build. Caches podem expirar e não substituem armazenamento permanente de chaves; antes de cada publicação, comparar o certificado com a versão anterior.
-- Versões até 1.3 foram produzidas com certificados debug diferentes. O Android pode exigir desinstalação para a transição à nova chave. Desinstalar limpa dados salvos no app. Não promete migração quando as assinaturas forem diferentes.
-- Versões futuras só podem ser instaladas por cima quando mantiverem **applicationId** e certificado de assinatura idênticos e **versionCode** crescente.
-- A instalação requer confirmação do usuário, conforme regras do Android.
+## Versão 2
+
+1. Compile `gradle :app:assembleRelease` ou baixe o APK sem assinatura do fluxo de compilação.
+2. Alinhe o APK e assine com a chave privada de distribuição do SwipeClean 2. Guarde a chave fora do Git.
+3. Antes de publicar, confirme com `apksigner verify --print-certs` que o certificado coincide com o APK anterior do canal v2. Confirme também o identificador `com.swipeclean.gallery.v2` e incremente o `versionCode`.
+4. Atualize `downloads/SwipeClean-v2.apk` e `updates/v2.json` no mesmo commit. O JSON leva `versionCode`, `versionName`, `notes` e o SHA-256 do arquivo assinado.
+
+O app verifica o SHA-256 do arquivo baixado. O instalador Android verifica a assinatura e pede confirmação.
+
+## Versão 1.7
+
+O canal anterior continua em `downloads/SwipeClean.apk` e `updates/version.json`. A versão 1.7 usava uma chave de depuração do cache do GitHub Actions. A versão 2 tem identificador próprio e pode ser instalada no mesmo aparelho com os dois apps presentes.
